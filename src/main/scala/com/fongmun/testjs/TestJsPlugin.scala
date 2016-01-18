@@ -122,6 +122,13 @@ object TestJsPlugin extends AutoPlugin {
     }
   )
 
+  // Fix up an absolute path so it can be concatenated onto "file://" to get a URI. On Unix, absolute paths
+  // will start with '/' so need no alteration. On Windows, a path will be something like C:\SomeDirectory\file.txt
+  // which needs to transform to file:///C:/SomeDirectory/file.txt
+  // See https://blogs.msdn.microsoft.com/ie/2006/12/06/file-uris-in-windows/
+  // This is a simple implementation; I'm only doing percent-encoding of spaces.
+  def fixUpPath(path: String): String = if (path.startsWith("/")) path else "/" + path.replace('\\', '/').replace(" ", "%20")
+
   def generateHtml(
     index: Int,
     suite: TestJsSuite,
@@ -132,19 +139,21 @@ object TestJsPlugin extends AutoPlugin {
     val allLibJsTags = generateTagsHtml(suite.libs)
     val allTestJsTags = generateTagsHtml(suite.tests)
 
+    val fixedPath = fixUpPath(jasmineDirAbsolutePath)
+
     IO.write(
       new File(testHtmlAbsolutePath),
       s"""
           | <html>
           |   <head>
-          |     <link rel="shortcut icon" type="image/png" href="file://$jasmineDirAbsolutePath/jasmine_favicon.png">
-          |     <link rel="stylesheet" type="text/css" href="file://$jasmineDirAbsolutePath/jasmine.css">
+          |     <link rel="shortcut icon" type="image/png" href="file://$fixedPath/jasmine_favicon.png">
+          |     <link rel="stylesheet" type="text/css" href="file://$fixedPath/jasmine.css">
           |
-          |     <script type="text/javascript" src="file://$jasmineDirAbsolutePath/override.js"></script>
+          |     <script type="text/javascript" src="file://$fixedPath/override.js"></script>
           |
-          |     <script type="text/javascript" src="file://$jasmineDirAbsolutePath/jasmine.js"></script>
-          |     <script type="text/javascript" src="file://$jasmineDirAbsolutePath/jasmine-html.js"></script>
-          |     <script type="text/javascript" src="file://$jasmineDirAbsolutePath/boot.js"></script>
+          |     <script type="text/javascript" src="file://$fixedPath/jasmine.js"></script>
+          |     <script type="text/javascript" src="file://$fixedPath/jasmine-html.js"></script>
+          |     <script type="text/javascript" src="file://$fixedPath/boot.js"></script>
           |     <script type="text/javascript">
           |       jasmine.getEnv().addReporter(reporter);
           |     </script>
@@ -167,8 +176,9 @@ object TestJsPlugin extends AutoPlugin {
     logger: Logger,
     testHtml: File
   ): TestJsSuiteResult = {
-    logger.info(s"Execute ${testHtml.getAbsolutePath}")
-    browser.get(s"file://${testHtml.getAbsolutePath}")
+    val fixedExecutePath = fixUpPath(testHtml.getAbsolutePath)
+    logger.info(s"Execute $fixedExecutePath")
+    browser.get(s"file://$fixedExecutePath")
     browser.executeScript("return consoleOutputs;").asInstanceOf[util.ArrayList[String]].asScala.foreach { line =>
       logger.info(line)
     }
@@ -184,7 +194,7 @@ object TestJsPlugin extends AutoPlugin {
     path.get
       .map(_.getAbsolutePath)
       .map { path =>
-        s"""<script type="text/javascript" src="file://$path"></script>"""
+        s"""<script type="text/javascript" src="file://${fixUpPath(path)}"></script>"""
       }
       .mkString("\n")
   }
